@@ -56,6 +56,8 @@ def worker_start(*args):
     try:
         loop = asyncio.new_event_loop()
         loop.run_until_complete(worker_loop(*args))
+    except (KeyboardInterrupt, SystemExit):
+        exit(1)
     except Exception as e:
         print(repr(e))
 
@@ -137,7 +139,7 @@ async def worker_loop(args, tasks: Queue, results: Queue):
             if args.no_reuse:
                 await session.close()
     except KeyboardInterrupt:
-        pass
+        exit(1)
     except Exception as e:
         print(repr(e))
 
@@ -161,6 +163,9 @@ def detect_window_resize(screen):
     keycode = None
     while keycode != -1:
         keycode = screen.getch()
+        if keycode == 3:
+            # curses eat ^C, so we need raise it manually
+            raise KeyboardInterrupt()
     # detect different size changed by signal
     if curses.is_term_resized(*screen.getmaxyx()):
         curses.resize_term(0, 0)
@@ -321,7 +326,7 @@ def main():
     tasks = Queue()
     results = Queue()
     all_results = []
-    workers = [Process(target=worker_start, args=(args, tasks, results)) for _ in range(args.c)]
+    workers = [Process(target=worker_start, args=(args, tasks, results), daemon=True) for _ in range(args.c)]
 
     for _ in range(args.n):
         tasks.put(args.url, block=True)
@@ -353,6 +358,7 @@ def main():
             all_results.append(result)
     except KeyboardInterrupt:
         stats(all_results, time() - start_time)
+        exit(1)
     except Exception as e:
         print(repr(e))
         raise
@@ -387,7 +393,7 @@ def timing_stats(results: List[Result]):
             '', 'Mean', 'Min', *(f'{p}%' for p in percentiles), 'Max',
         ),
         format_line(
-            'Connect:', 
+            'Connect:',
             mean(conn_times) if conn_times else '-',
             min(conn_times) if conn_times else '-',
             *(percentile(conn_times, p) for p in percentiles),
@@ -395,13 +401,13 @@ def timing_stats(results: List[Result]):
         ),
         format_line(
             'TTFB:',
-            mean(ttfb_times) if ttfb_times else '-', 
+            mean(ttfb_times) if ttfb_times else '-',
             min(ttfb_times) if ttfb_times else '-',
             *(percentile(ttfb_times, p) for p in percentiles),
             max(ttfb_times) if ttfb_times else '-',
         ),
         format_line(
-            'Total:', 
+            'Total:',
             mean(total_times) if total_times else '-',
             min(total_times) if total_times else '-',
             *(percentile(total_times, p) for p in percentiles),
