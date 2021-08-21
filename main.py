@@ -43,6 +43,7 @@ def get_args():
     parser.add_argument('--debug', action='store_true', help='Run in debug mode')
     parser.add_argument('--insecure', action='store_true', help='Skip TLS verification')
     parser.add_argument('--chrome', action='store_true', help='Use Chrome User-Agent header')
+    parser.add_argument('--no-reuse', action='store_true', help='New connection for each request')
     parser.add_argument('url', help='target URL')
     args = parser.parse_args()
     if not (args.url.startswith('http:') or args.url.startswith('https:')):
@@ -82,48 +83,59 @@ async def worker_loop(args, tasks: Queue, results: Queue):
         trace.on_request_end.append(partial(trace_call, 'req_end'))  # noqa
         trace.on_request_chunk_sent.append(partial(trace_call, 'chunk_sent'))  # noqa
         trace.on_response_chunk_received.append(partial(trace_call, 'chunk_received'))  # noqa
-        async with ClientSession(
-            timeout=ClientTimeout(total=args.t),
-            skip_auto_headers=('User-Agent',),
-            trace_configs=[trace],
-        ) as session:
-            while True:
-                try:
-                    tasks.get(block=True, timeout=1)
-                except Empty:
-                    return
-                try:
-                    context = {}
-                    headers = {}
-                    if args.H:
-                        headers = dict(map(str.strip, h.split(':', 1)) for h in args.H)  # noqa
-                    if args.chrome:
-                        headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36'
-                    response = await session.request(
-                        method=args.m,
-                        url=args.url,
-                        data=args.b,
-                        headers=headers,
-                        allow_redirects=False,
-                        verify_ssl=not args.insecure,
-                        trace_request_ctx=context,
-                    )
-                    body = await response.read()
-                except asyncio.TimeoutError:
-                    result = Result(timestamp=time(), error='timeout')
-                except Exception as e:
-                    result = Result(timestamp=time(), error=repr(e))
-                else:
-                    result = Result(
-                        timestamp=time(),
-                        status=response.status,
-                        size=len(body),
-                        total_time=context.get('req_end', 0) - context.get('req_start', 0),
-                        conn_time=context.get('conn_end', 0) - context.get('conn_start', 0),
-                        ttfb_time=context.get('chunk_received', 0) - context.get('chunk_sent', 0),
-                    )
-                results.put(result, block=True)
-                sleep(0.5)
+        if not args.no_reuse:
+            session = ClientSession(
+                timeout=ClientTimeout(total=args.t),
+                skip_auto_headers=('User-Agent',),
+                trace_configs=[trace],
+            )
+        while True:
+            if args.no_reuse:
+                session = ClientSession(
+                    timeout=ClientTimeout(total=args.t),
+                    skip_auto_headers=('User-Agent',),
+                    trace_configs=[trace],
+                )
+            else:
+                session.cookie_jar.clear()
+            try:
+                tasks.get(block=True, timeout=1)
+            except Empty:
+                await session.close()
+                return
+            try:
+                context = {}
+                headers = {}
+                if args.H:
+                    headers = dict(map(str.strip, h.split(':', 1)) for h in args.H)  # noqa
+                if args.chrome:
+                    headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36'
+                response = await session.request(
+                    method=args.m,
+                    url=args.url,
+                    data=args.b,
+                    headers=headers,
+                    allow_redirects=False,
+                    verify_ssl=not args.insecure,
+                    trace_request_ctx=context,
+                )
+                body = await response.read()
+            except asyncio.TimeoutError:
+                result = Result(timestamp=time(), error='timeout')
+            except Exception as e:
+                result = Result(timestamp=time(), error=repr(e))
+            else:
+                result = Result(
+                    timestamp=time(),
+                    status=response.status,
+                    size=len(body),
+                    total_time=context.get('req_end', 0) - context.get('req_start', 0),
+                    conn_time=context.get('conn_end', 0) - context.get('conn_start', 0),
+                    ttfb_time=context.get('chunk_received', 0) - context.get('chunk_sent', 0),
+                )
+            results.put(result, block=True)
+            if args.no_reuse:
+                await session.close()
     except KeyboardInterrupt:
         pass
     except Exception as e:
