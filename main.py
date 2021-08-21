@@ -89,7 +89,7 @@ async def worker_loop(args, tasks: Queue, results: Queue):
         ) as session:
             while True:
                 try:
-                    tasks.get(block=False)
+                    tasks.get(block=True, timeout=1)
                 except Empty:
                     return
                 try:
@@ -110,9 +110,9 @@ async def worker_loop(args, tasks: Queue, results: Queue):
                     )
                     body = await response.read()
                 except asyncio.TimeoutError:
-                    result = Result(error='timeout')
+                    result = Result(timestamp=time(), error='timeout')
                 except Exception as e:
-                    result = Result(error=repr(e))
+                    result = Result(timestamp=time(), error=repr(e))
                 else:
                     result = Result(
                         timestamp=time(),
@@ -122,11 +122,11 @@ async def worker_loop(args, tasks: Queue, results: Queue):
                         conn_time=context.get('conn_end', 0) - context.get('conn_start', 0),
                         ttfb_time=context.get('chunk_received', 0) - context.get('chunk_sent', 0),
                     )
-                results.put(result, block=False)
+                results.put(result, block=True)
                 sleep(0.5)
     except KeyboardInterrupt:
         pass
-    except Exception:
+    except Exception as e:
         print(repr(e))
 
 
@@ -190,26 +190,38 @@ class SubArea:
         x_start = self.left + x
         if self.border_left:
             x_start += 1
-        self.window.addstr(y_start, x_start, text)
+        try:
+            self.window.addstr(y_start, x_start, text)
+        except curses.error as e:
+            print(repr(e), y_start, x_start, text)
 
     def draw_hline(self, y, x, length):
+        if not length:
+            return
         y_start = self.top + y
         if self.border_top:
             y_start += 1
         x_start = self.left + x
         if self.border_left:
             x_start += 1
-        self.window.hline(y_start, x_start, curses.ACS_BLOCK, length)
+        try:
+            self.window.hline(y_start, x_start, curses.ACS_BLOCK, length)
+        except curses.error as e:
+            print(repr(e), y_start, x_start, length)
 
     def draw_vline(self, y, x, length):
+        if not length:
+            return
         y_start = self.top + y
         if self.border_top:
             y_start += 1
         x_start = self.left + x
         if self.border_left:
             x_start += 1
-        print(y_start, x_start, curses.ACS_BLOCK, length)
-        self.window.vline(y_start, x_start, curses.ACS_BLOCK, length)
+        try:
+            self.window.vline(y_start, x_start, curses.ACS_BLOCK, length)
+        except curses.error as e:
+            print(repr(e), y_start, x_start, length)
 
 
 def update_screen(screen, args, results: List[Result]):
@@ -261,7 +273,7 @@ def update_screen(screen, args, results: List[Result]):
     for i, ts in enumerate(list(sorted(max_time_per_ts.keys()))[-(chart_time.width - 7):]):
         value_ms = max_time_per_ts[ts]
         value = int(value_ms * 1000 * chart_time.height / max_total_time)
-        chart_time.draw_vline(chart_time.height - value, 6 + i, value)
+        chart_time.draw_vline(chart_time.height - value, 6 + i, value or 1)
     chart_time.draw_border()
 
     chart_count = SubArea(
@@ -300,7 +312,7 @@ def main():
     workers = [Process(target=worker_start, args=(args, tasks, results)) for _ in range(args.c)]
 
     for _ in range(args.n):
-        tasks.put(args.url, block=False)
+        tasks.put(args.url, block=True)
 
     for worker in workers:
         worker.start()
@@ -324,7 +336,7 @@ def main():
                     exit()
             if now - last_state_time > 5:
                 last_state_time = now
-                print(f'Processed {len(all_results)} / {args.n} ({len(all_results) * 100 / args.n:.1f}%)')
+                # print(f'Processed {len(all_results)} / {args.n} ({len(all_results) * 100 / args.n:.1f}%)')
             result: Result = results.get()
             all_results.append(result)
     except KeyboardInterrupt:
@@ -405,7 +417,7 @@ def stats(results: List[Result], total_time: float):
     print(f'Time taken for tests:  {total_time:.2f} seconds')
     print(f'Complete requests:     {len(completed)}')
     print(f'Failed requests:       {len(failed)}')
-    print(f'Requests per second:   {total_time / len(results):.2f} [#/sec] (mean)')
+    print(f'Requests per second:   {len(results) / total_time:.2f} [#/sec] (mean)')
     if completed:
         print(f'Time per request:      {sum([r.total_time for r in completed]) * 1000 / len(completed):.3f} [ms] (mean)')
         print(f'Time per request:      {total_time * 1000 / len(completed):.3f} [ms] (mean, across all concurrent requests)')
