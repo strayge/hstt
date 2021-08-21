@@ -5,9 +5,9 @@ import platform
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import partial, wraps
-from threading import Thread as Process
 from queue import Empty, Queue
 from statistics import mean
+from threading import Thread
 from time import sleep, time
 from typing import List, Optional
 
@@ -118,14 +118,14 @@ async def worker_loop(args, tasks: Queue, results: Queue):
                     data=args.b,
                     headers=headers,
                     allow_redirects=False,
-                    verify_ssl=not args.insecure,
+                    ssl=False if args.insecure else None,
                     trace_request_ctx=context,
                 )
                 body = await response.read()
             except asyncio.TimeoutError:
                 result = Result(timestamp=time(), error='timeout')
             except Exception as e:
-                result = Result(timestamp=time(), error=repr(e))
+                result = Result(timestamp=time(), error=e.__class__.__name__)
             else:
                 result = Result(
                     timestamp=time(),
@@ -326,7 +326,7 @@ def main():
     tasks = Queue()
     results = Queue()
     all_results = []
-    workers = [Process(target=worker_start, args=(args, tasks, results), daemon=True) for _ in range(args.c)]
+    workers = [Thread(target=worker_start, args=(args, tasks, results), daemon=True) for _ in range(args.c)]
 
     for _ in range(args.n):
         tasks.put(args.url, block=True)
@@ -341,7 +341,7 @@ def main():
         while True:
             now = time()
             if now - start_time > args.d:
-                stats(all_results, now - start_time)
+                stats(args, all_results, now - start_time)
                 exit()
             if results.empty():
                 if any([worker.is_alive() for worker in workers]):
@@ -349,7 +349,7 @@ def main():
                     sleep(0.5)
                     continue
                 else:
-                    stats(all_results, now - start_time)
+                    stats(args, all_results, now - start_time)
                     exit()
             if now - last_state_time > 5:
                 last_state_time = now
@@ -357,7 +357,7 @@ def main():
             result: Result = results.get()
             all_results.append(result)
     except KeyboardInterrupt:
-        stats(all_results, time() - start_time)
+        stats(args, all_results, time() - start_time)
         exit(1)
     except Exception as e:
         print(repr(e))
@@ -422,16 +422,18 @@ def codes_stats(results: List[Result]):
     with_codes = Counter([r.status for r in results if r.status])
     with_errors = Counter([r.error for r in results if r.error])
     for code, count in with_codes.items():
-        lines.append(f'{code}: {count:>6} ({count * 100 / len(results):6.2f}%)')
+        lines.append(f'{code:<10}: {count:>6} ({count * 100 / len(results):6.2f}%)')
     for error, count in with_errors.items():
-        lines.append(f'{error}: {count:>6} ({count * 100 / len(results):6.2f}%)')
+        lines.append(f'{error:<10}: {count:>6} ({count * 100 / len(results):6.2f}%)')
     return lines
 
 
-def stats(results: List[Result], total_time: float):
+def stats(args, results: List[Result], total_time: float):
     completed = [r for r in results if r.status == 200]
     failed = [r for r in results if r.status != 200]
     print('')
+    print('## HSTT results')
+    print(f'Concurrency:           {args.c}{" (reusing connection per worker)" if not args.no_reuse else ""}')
     print(f'Time taken for tests:  {total_time:.2f} seconds')
     print(f'Complete requests:     {len(completed)}')
     print(f'Failed requests:       {len(failed)}')
@@ -440,9 +442,11 @@ def stats(results: List[Result], total_time: float):
         print(f'Time per request:      {sum([r.total_time for r in completed]) * 1000 / len(completed):.3f} [ms] (mean)')
         print(f'Time per request:      {total_time * 1000 / len(completed):.3f} [ms] (mean, across all concurrent requests)')
     print('')
+    print('## Statuses')
     for line in codes_stats(results):
         print(line)
     print('')
+    print('## Timings (ms)')
     for line in timing_stats(results):
         print(line)
 
