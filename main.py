@@ -5,8 +5,8 @@ import platform
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import partial, wraps
-from multiprocessing import Process, Queue
-from queue import Empty
+from threading import Thread as Process
+from queue import Empty, Queue
 from statistics import mean
 from time import sleep, time
 from typing import List, Optional
