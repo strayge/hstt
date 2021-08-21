@@ -2,12 +2,12 @@ import argparse
 import asyncio
 import curses
 import platform
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import partial, wraps
 from multiprocessing import Process, Queue
 from queue import Empty
-from statistics import mean, quantiles
+from statistics import mean
 from time import sleep, time
 from typing import List, Optional
 
@@ -55,12 +55,13 @@ def worker_start(*args):
     try:
         loop = asyncio.new_event_loop()
         loop.run_until_complete(worker_loop(*args))
-    except Exception:
+    except Exception as e:
         print(repr(e))
 
 
 @dataclass
 class Result:
+    timestamp: float
     error: Optional[str] = None
     status: Optional[int] = None
     size: Optional[int] = None
@@ -114,6 +115,7 @@ async def worker_loop(args, tasks: Queue, results: Queue):
                     result = Result(error=repr(e))
                 else:
                     result = Result(
+                        timestamp=time(),
                         status=response.status,
                         size=len(body),
                         total_time=context.get('req_end', 0) - context.get('req_start', 0),
@@ -121,6 +123,7 @@ async def worker_loop(args, tasks: Queue, results: Queue):
                         ttfb_time=context.get('chunk_received', 0) - context.get('chunk_sent', 0),
                     )
                 results.put(result, block=False)
+                sleep(0.5)
     except KeyboardInterrupt:
         pass
     except Exception:
@@ -128,21 +131,98 @@ async def worker_loop(args, tasks: Queue, results: Queue):
 
 
 def init_screen():
-    # screen = curses.initscr()
-    # curses.noecho()
-    # curses.cbreak()
-    pass
+    screen = curses.initscr()
+    curses.noecho()
+    curses.cbreak()
+    screen.nodelay(True)
+    return screen
 
 
 def end_screen():
-    # curses.nocbreak()
-    # curses.echo()
-    # curses.endwin()
-    pass
+    curses.nocbreak()
+    curses.echo()
+    curses.endwin()
 
 
-def update_screen(results: List[Result]):
-    pass
+def detect_window_resize(screen):
+    # required for getting resize signal
+    keycode = None
+    while keycode != -1:
+        keycode = screen.getch()
+    # detect different size changed by signal
+    if curses.is_term_resized(*screen.getmaxyx()):
+        curses.resize_term(0, 0)
+        screen.erase()
+
+
+def update_screen(screen, args, results: List[Result]):
+    detect_window_resize(screen)
+    screen.erase()
+
+    timing_lines = timing_stats(results)
+    codes_lines = codes_stats(results)
+    max_total_time = max([int(r.total_time * 1000) for r in results if r.total_time] or [0])
+    border_x = 2
+    border_y = 1
+    max_y, max_x = screen.getmaxyx()
+
+    bottom_height = max(len(timing_lines), len(codes_lines))
+    bottom_y = max_y - bottom_height - 2 - border_y
+    timings_width = max([len(line) for line in timing_lines])
+    bottom_right_x = max_x - timings_width - border_x
+
+    top_left = border_x + 5
+    top_width = max_x - border_x - top_left
+    top_height = bottom_y - 2 * border_y
+
+    # chart axis
+    screen.addstr(border_y, border_x, f'{max_total_time:>4}')
+    screen.addstr(border_y + top_height // 2, border_x, f'{max_total_time // 2:>4}')
+    screen.addstr(border_y + top_height - 1, border_x, f'{0:>4}')
+
+    # chart
+    time_per_ts = defaultdict(list)
+    for r in results:
+        if r.total_time:
+            ts = int(r.timestamp)
+            time_per_ts[ts].append(r.total_time)
+    max_time_per_ts = {ts: max(values) for ts, values in time_per_ts.items()}
+
+    for i, ts in enumerate(list(sorted(max_time_per_ts.keys()))[-top_width:]):
+        value_ms = max_time_per_ts[ts]
+        value = int(value_ms * 1000 * top_height / max_total_time)
+        try:
+            screen.vline(border_y + top_height - value, top_left + i, curses.ACS_BLOCK, value)
+        except curses.error as e:
+            print(repr(e), border_y + top_height - value, top_left + i, curses.ACS_BLOCK, value)
+
+    # splitter
+    screen.hline(bottom_y - 1, 1, curses.ACS_HLINE, max_x)
+
+    # codes
+    for i, line in enumerate(codes_lines):
+        screen.addstr(bottom_y + i, border_x, line)
+
+    # vertical splitter
+    screen.vline(bottom_y, bottom_right_x - 2, curses.ACS_VLINE, bottom_height)
+
+    # timings
+    for i, line in enumerate(timing_lines):
+        screen.addstr(bottom_y + i, bottom_right_x, line)
+
+    # splitter
+    screen.hline(max_y - border_y - 2, 1, curses.ACS_HLINE, max_x)
+
+    # progress bar
+    last_line = max_y - 2
+    completed_percent = len(results) / args.n
+    screen.addstr(last_line, border_x, f'{len(results):>6} / {args.n:>6}')
+    screen.addstr(last_line, max_x - border_x - 4, f'{len(results) * 100 / args.n:.0f}%')
+    if completed_percent:
+        screen.hline(last_line, 20, curses.ACS_BLOCK, int(completed_percent * (max_x - 28)) or 1)
+
+    screen.border()
+    screen.refresh()
 
 
 def main():
@@ -158,7 +238,7 @@ def main():
     for worker in workers:
         worker.start()
 
-    init_screen()
+    screen = init_screen()
     start_time = time()
     last_state_time = start_time
     try:
@@ -169,8 +249,8 @@ def main():
                 exit()
             if results.empty():
                 if any([worker.is_alive() for worker in workers]):
-                    update_screen(all_results)
-                    sleep(0.1)
+                    update_screen(screen, args, all_results)
+                    sleep(0.5)
                     continue
                 else:
                     stats(all_results, now - start_time)
@@ -181,7 +261,7 @@ def main():
             result: Result = results.get()
             all_results.append(result)
     except KeyboardInterrupt:
-        pass
+        stats(all_results, time() - start_time)
     except Exception as e:
         print(repr(e))
         raise
@@ -189,13 +269,69 @@ def main():
         end_screen()
 
 
+def timing_stats(results: List[Result]):
+    def percentile(data, percent: int):
+        if not data:
+            return '-'
+        data_sorted = sorted(data)
+        pos = max(int(round(percent / 100 * len(data) + 0.5)), 2)
+        return data_sorted[pos - 2]
+
+    def format_line(name, *values):
+        line = f'{name:<10s}'
+        for value in values:
+            if isinstance(value, float):
+                line += f' {value:6.0f}'
+            else:
+                line += f' {value:>6}'
+        return line
+
+    total_times = [r.total_time * 1000 for r in results if r.total_time]
+    ttfb_times = [r.ttfb_time * 1000 for r in results if r.ttfb_time]
+    conn_times = [r.conn_time * 1000 for r in results if r.conn_time]
+
+    percentiles = (50, 80, 95, 99)
+    lines = [
+        format_line(
+            '', 'Mean', 'Min', *(f'{p}%' for p in percentiles), 'Max',
+        ),
+        format_line(
+            'Connect:', 
+            mean(conn_times) if conn_times else '-',
+            min(conn_times) if conn_times else '-',
+            *(percentile(conn_times, p) for p in percentiles),
+            max(conn_times) if conn_times else '-',
+        ),
+        format_line(
+            'TTFB:',
+            mean(ttfb_times) if ttfb_times else '-', 
+            min(ttfb_times) if ttfb_times else '-',
+            *(percentile(ttfb_times, p) for p in percentiles),
+            max(ttfb_times) if ttfb_times else '-',
+        ),
+        format_line(
+            'Total:', 
+            mean(total_times) if total_times else '-',
+            min(total_times) if total_times else '-',
+            *(percentile(total_times, p) for p in percentiles),
+            max(total_times) if total_times else '-',
+        ),
+    ]
+    return lines
+
+
+def codes_stats(results: List[Result]):
+    lines = []
+    with_codes = Counter([r.status for r in results if r.status])
+    with_errors = Counter([r.error for r in results if r.error])
+    for code, count in with_codes.items():
+        lines.append(f'{code}: {count:>6} ({count * 100 / len(results):6.2f}%)')
+    for error, count in with_errors.items():
+        lines.append(f'{error}: {count:>6} ({count * 100 / len(results):6.2f}%)')
+    return lines
+
+
 def stats(results: List[Result], total_time: float):
-    def percentile(data: List, n: int):
-        if len(data) == 1:
-            return data[0]
-        if len(data) == 0:
-            return 0
-        return quantiles(data, n=100)[n-1]
     completed = [r for r in results if r.status == 200]
     failed = [r for r in results if r.status != 200]
     print('')
@@ -207,30 +343,11 @@ def stats(results: List[Result], total_time: float):
         print(f'Time per request:      {sum([r.total_time for r in completed]) * 1000 / len(completed):.3f} [ms] (mean)')
         print(f'Time per request:      {total_time * 1000 / len(completed):.3f} [ms] (mean, across all concurrent requests)')
     print('')
-    for code, count in Counter([r.status for r in results if r.status]).items():
-        print(f'{code}:  {count}')
-    for error, count in Counter([r.error for r in results if r.error]).items():
-        print(f'{error}:  {count}')
+    for line in codes_stats(results):
+        print(line)
     print('')
-    total_times = [r.total_time * 1000 for r in results if r.total_time]
-    ttfb_times = [r.ttfb_time * 1000 for r in results if r.ttfb_time]
-    conn_times = [r.conn_time * 1000 for r in results if r.conn_time]
-    print(f'            Mean    Min    50%    80%    90%    95%    Max')
-    print(
-        f'Connect:  {mean(conn_times):6.0f} {min(conn_times):6.0f} {percentile(conn_times, 50):6.0f} '
-        f'{percentile(conn_times, 80):6.0f} {percentile(conn_times, 90):6.0f} {percentile(conn_times, 95):6.0f} '
-        f'{max(conn_times):6.0f}'
-    )
-    print(
-        f'TTFB:     {mean(ttfb_times):6.0f} {min(ttfb_times):6.0f} {percentile(ttfb_times, 50):6.0f} '
-        f'{percentile(ttfb_times, 80):6.0f} {percentile(ttfb_times, 90):6.0f} {percentile(ttfb_times, 95):6.0f} '
-        f'{max(ttfb_times):6.0f}'
-    )
-    print(
-        f'Total:    {mean(total_times):6.0f} {min(total_times):6.0f} {percentile(total_times, 50):6.0f} '
-        f'{percentile(total_times, 80):6.0f} {percentile(total_times, 90):6.0f} {percentile(total_times, 95):6.0f} '
-        f'{max(total_times):6.0f}'
-    )
+    for line in timing_stats(results):
+        print(line)
 
 
 if __name__ == '__main__':
