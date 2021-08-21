@@ -155,71 +155,138 @@ def detect_window_resize(screen):
         screen.erase()
 
 
+class SubArea:
+    def __init__(self, window, y, x, h, w):
+        self.window = window
+        self.top = y
+        self.left = x
+        self.height = h
+        self.width = w
+        self.border_top = False
+        self.border_bottom = False
+        self.border_left = False
+        self.border_right = False
+
+    def set_border(self, top=False, bottom=False, left=False, right=False):
+        self.border_top = top
+        self.border_bottom = bottom
+        self.border_left = left
+        self.border_right = right
+
+    def draw_border(self):
+        if self.border_top:
+            self.window.hline(self.top, self.left, curses.ACS_HLINE, self.width)
+        if self.border_bottom:
+            self.window.hline(self.top + self.height, self.left, curses.ACS_HLINE, self.width)
+        if self.border_left:
+            self.window.vline(self.top, self.left, curses.ACS_VLINE, self.height)
+        if self.border_right:
+            self.window.vline(self.top, self.left + self.width, curses.ACS_VLINE, self.width)
+
+    def draw_text(self, y, x, text):
+        y_start = self.top + y
+        if self.border_top:
+            y_start += 1
+        x_start = self.left + x
+        if self.border_left:
+            x_start += 1
+        self.window.addstr(y_start, x_start, text)
+
+    def draw_hline(self, y, x, length):
+        y_start = self.top + y
+        if self.border_top:
+            y_start += 1
+        x_start = self.left + x
+        if self.border_left:
+            x_start += 1
+        self.window.hline(y_start, x_start, curses.ACS_BLOCK, length)
+
+    def draw_vline(self, y, x, length):
+        y_start = self.top + y
+        if self.border_top:
+            y_start += 1
+        x_start = self.left + x
+        if self.border_left:
+            x_start += 1
+        print(y_start, x_start, curses.ACS_BLOCK, length)
+        self.window.vline(y_start, x_start, curses.ACS_BLOCK, length)
+
+
 def update_screen(screen, args, results: List[Result]):
     detect_window_resize(screen)
     screen.erase()
 
+    max_y, max_x = screen.getmaxyx()
     timing_lines = timing_stats(results)
     codes_lines = codes_stats(results)
-    max_total_time = max([int(r.total_time * 1000) for r in results if r.total_time] or [0])
-    border_x = 2
-    border_y = 1
-    max_y, max_x = screen.getmaxyx()
-
-    bottom_height = max(len(timing_lines), len(codes_lines))
-    bottom_y = max_y - bottom_height - 2 - border_y
     timings_width = max([len(line) for line in timing_lines])
-    bottom_right_x = max_x - timings_width - border_x
+    bottom_height = max(len(timing_lines), len(codes_lines))
 
-    top_left = border_x + 5
-    top_width = max_x - border_x - top_left
-    top_height = bottom_y - 2 * border_y
+    area_progress = SubArea(screen, max_y - 3, 1, 2, max_x - 2)
+    area_progress.set_border(top=True)
+    completed_percent = len(results) / args.n
+    area_progress.draw_text(0, 0, f'{len(results):>6} / {args.n:>6}')
+    area_progress.draw_text(0, area_progress.width - 4, f'{len(results) * 100 / args.n:.0f}%')
+    if completed_percent:
+        area_progress.draw_hline(0, 17, int(completed_percent * (area_progress.width - 22)) or 1)
+    area_progress.draw_border()
 
-    # chart axis
-    screen.addstr(border_y, border_x, f'{max_total_time:>4}')
-    screen.addstr(border_y + top_height // 2, border_x, f'{max_total_time // 2:>4}')
-    screen.addstr(border_y + top_height - 1, border_x, f'{0:>4}')
+    area_timings = SubArea(
+        screen, max_y - 1 - area_progress.height - bottom_height, max_x - timings_width - 4,
+        bottom_height, timings_width + 2,
+    )
+    area_timings.set_border(left=True)
+    for i, line in enumerate(timing_lines):
+        area_timings.draw_text(i, 1, line)
+    area_timings.draw_border()
 
-    # chart
+    area_codes = SubArea(screen, area_timings.top, 1, bottom_height, max_x - area_timings.width - 4)
+    for i, line in enumerate(codes_lines):
+        area_codes.draw_text(i, 1, line)
+
+    chart_time = SubArea(screen, 1, 1, (area_timings.top - 2) // 2, max_x - 2)
+    chart_time.set_border(bottom=True)
+    # axis
+    max_total_time = max([int(r.total_time * 1000) for r in results if r.total_time] or [0])
+    chart_time.draw_text(0, 0, f'{max_total_time:>5}')
+    chart_time.draw_text(chart_time.height // 2, 0, f'{max_total_time // 2:>5}')
+    chart_time.draw_text(chart_time.height - 1, 0, f'{0:>5}')
+    # data
     time_per_ts = defaultdict(list)
     for r in results:
         if r.total_time:
             ts = int(r.timestamp)
             time_per_ts[ts].append(r.total_time)
     max_time_per_ts = {ts: max(values) for ts, values in time_per_ts.items()}
-
-    for i, ts in enumerate(list(sorted(max_time_per_ts.keys()))[-top_width:]):
+    for i, ts in enumerate(list(sorted(max_time_per_ts.keys()))[-(chart_time.width - 7):]):
         value_ms = max_time_per_ts[ts]
-        value = int(value_ms * 1000 * top_height / max_total_time)
-        try:
-            screen.vline(border_y + top_height - value, top_left + i, curses.ACS_BLOCK, value)
-        except curses.error as e:
-            print(repr(e), border_y + top_height - value, top_left + i, curses.ACS_BLOCK, value)
+        value = int(value_ms * 1000 * chart_time.height / max_total_time)
+        chart_time.draw_vline(chart_time.height - value, 6 + i, value)
+    chart_time.draw_border()
 
-    # splitter
-    screen.hline(bottom_y - 1, 1, curses.ACS_HLINE, max_x)
-
-    # codes
-    for i, line in enumerate(codes_lines):
-        screen.addstr(bottom_y + i, border_x, line)
-
-    # vertical splitter
-    screen.vline(bottom_y, bottom_right_x - 2, curses.ACS_VLINE, bottom_height)
-
-    # timings
-    for i, line in enumerate(timing_lines):
-        screen.addstr(bottom_y + i, bottom_right_x, line)
-
-    # splitter
-    screen.hline(max_y - border_y - 2, 1, curses.ACS_HLINE, max_x)
-
-    # progress bar
-    last_line = max_y - 2
-    completed_percent = len(results) / args.n
-    screen.addstr(last_line, border_x, f'{len(results):>6} / {args.n:>6}')
-    screen.addstr(last_line, max_x - border_x - 4, f'{len(results) * 100 / args.n:.0f}%')
-    if completed_percent:
-        screen.hline(last_line, 20, curses.ACS_BLOCK, int(completed_percent * (max_x - 28)) or 1)
+    chart_count = SubArea(
+        screen,
+        chart_time.top + chart_time.height + 1, chart_time.left,
+        area_timings.top - chart_time.top - chart_time.height - 2, chart_time.width,
+    )
+    chart_count.set_border(bottom=True)
+    # data
+    resp_per_ts = defaultdict(int)
+    for r in results:
+        if r.status:
+            ts = int(r.timestamp)
+            resp_per_ts[ts] += 1
+    # axis
+    max_rps = max(resp_per_ts.values() or [0])
+    chart_count.draw_text(0, 0, f'{max_rps:>5}')
+    chart_count.draw_text(chart_count.height // 2, 0, f'{max_rps // 2:>5}')
+    chart_count.draw_text(chart_count.height - 1, 0, f'{0:>5}')
+    # plot
+    for i, ts in enumerate(list(sorted(resp_per_ts.keys()))[-(chart_count.width - 7):]):
+        count = resp_per_ts[ts]
+        value = int(count * chart_count.height / max_rps)
+        chart_count.draw_vline(chart_count.height - value, 6 + i, value)
+    chart_count.draw_border()
 
     screen.border()
     screen.refresh()
