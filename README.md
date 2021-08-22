@@ -1,5 +1,7 @@
 ## hstt - HTTP stress testing tool
 
+![screenshot](https://user-images.githubusercontent.com/2664578/130337933-40b131e0-2f27-4f77-a389-c3ecc0668b00.gif)
+
 ### Params
 
 ```
