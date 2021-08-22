@@ -9,33 +9,32 @@
 ### Params
 
 ```
-usage: hstt [-h] [-n <num>] [-c <num>] [-d <sec>] [-t <sec>]
-            [-H [<header> [<header> ...]]] [-b <body>] [-m <method>] [--debug]
-            [--insecure] [--chrome] [--no-reuse]
+usage: hstt [-h] [-n <num>] [-c <num>] [-d <sec>] [-t <sec>] [-H [<header> ...]] [-b <body>]
+            [-m <method>] [--debug] [--insecure] [--chrome] [--no-reuse]
             url
 
 HTTP stress testing tool (hstt)
 
 positional arguments:
-  url                   target URL
+  url                target URL
 
 optional arguments:
-  -h, --help            show this help message and exit
-  -n <num>              Total number of requests to perform
-  -c <num>              Number of concurrent requests
-  -d <sec>              Total duration limit
-  -t <sec>              The timeout for each request.
-  -H [<header> [<header> ...]]
-                        A request header to be sent
-  -b <body>             A request body to be sent
-  -m <method>           An HTTP request method for each request
-  --debug               Run in debug mode
-  --insecure            Skip TLS verification
-  --chrome              Use Chrome User-Agent header
-  --no-reuse            New connection for each request
+  -h, --help         show this help message and exit
+  -n <num>           Total number of requests to perform (default: 10)
+  -c <num>           Number of concurrent requests (default: 1)
+  -d <sec>           Total duration limit (default: 30)
+  -t <sec>           The timeout for each request (default: 30)
+  -H [<header> ...]  A request header to be sent
+  -b <body>          A request body to be sent
+  -m <method>        An HTTP request method for each request (default: GET)
+  --debug            Run in debug mode
+  --insecure         Skip TLS verification
+  --chrome           Use Chrome User-Agent header
+  --no-reuse         New connection for each request
 ```
 
 ### Output
+
 ```
 $ hstt https://example.com -n 3000 -c 10 -t 0.3
 

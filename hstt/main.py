@@ -31,12 +31,20 @@ if sys.platform == 'win32':
     _ProactorBasePipeTransport.__del__ = silence_event_loop_closed(_ProactorBasePipeTransport.__del__)
 
 
+class CustomArgsFormatter(argparse.HelpFormatter):
+    def _get_help_string(self, action):
+        help = action.help
+        if action.default not in (argparse.SUPPRESS, None, False):
+            help += ' (default: %(default)s)'
+        return help
+
+
 def get_args():
-    parser = argparse.ArgumentParser(description='HTTP stress testing tool (hstt)')
-    parser.add_argument('-n', type=int, metavar='<num>', default=5, help='Total number of requests to perform')
+    parser = argparse.ArgumentParser(description='HTTP stress testing tool (hstt)', formatter_class=CustomArgsFormatter)
+    parser.add_argument('-n', type=int, metavar='<num>', default=10, help='Total number of requests to perform')
     parser.add_argument('-c', type=int, metavar='<num>', default=1, help='Number of concurrent requests')
     parser.add_argument('-d', type=float, metavar='<sec>', default=30, help='Total duration limit')
-    parser.add_argument('-t', type=float, metavar='<sec>', default=30, help='The timeout for each request.')
+    parser.add_argument('-t', type=float, metavar='<sec>', default=30, help='The timeout for each request')
     parser.add_argument('-H', metavar='<header>', nargs='*', help='A request header to be sent')
     parser.add_argument('-b', metavar='<body>', help='A request body to be sent')
     parser.add_argument('-m', metavar='<method>', default='GET', help='An HTTP request method for each request')
