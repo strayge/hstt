@@ -8,7 +8,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='hstt',
-    version='0.0.1',
+    version='0.0.2',
     description='HTTP stress testing tool',
     long_description=readme,
     author='strayge',
