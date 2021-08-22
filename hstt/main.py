@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import partial, wraps
 from queue import Empty, Queue
 from statistics import mean
-from threading import Thread
+from threading import Event, Thread
 from time import sleep, time
 from typing import List, Optional
 
@@ -73,7 +73,7 @@ class Result:
     ttfb_time: Optional[float] = None
 
 
-async def worker_loop(args, tasks: Queue, results: Queue):
+async def worker_loop(args, tasks: Queue, results: Queue, start_event: Event):
     try:
         async def trace_call(name, _, context, __):
             if name not in context.trace_request_ctx:
@@ -85,6 +85,11 @@ async def worker_loop(args, tasks: Queue, results: Queue):
         trace.on_request_end.append(partial(trace_call, 'req_end'))  # noqa
         trace.on_request_chunk_sent.append(partial(trace_call, 'chunk_sent'))  # noqa
         trace.on_response_chunk_received.append(partial(trace_call, 'chunk_received'))  # noqa
+
+        # wait all threads to initialize
+        if not start_event.wait(timeout=10):
+            return
+
         if not args.no_reuse:
             session = ClientSession(
                 timeout=ClientTimeout(total=args.t),
@@ -325,8 +330,16 @@ def main():
     args = get_args()
     tasks = Queue()
     results = Queue()
+    start_event = Event()
     all_results = []
-    workers = [Thread(target=worker_start, args=(args, tasks, results), daemon=True) for _ in range(args.c)]
+    workers = [
+        Thread(
+            target=worker_start,
+            args=(args, tasks, results, start_event),
+            daemon=True,
+        )
+        for _ in range(args.c)
+    ]
 
     for _ in range(args.n):
         tasks.put(args.url, block=True)
@@ -335,6 +348,7 @@ def main():
         worker.start()
 
     screen = init_screen()
+    start_event.set()
     start_time = time()
     last_state_time = start_time
     try:
