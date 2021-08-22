@@ -21,13 +21,13 @@ setup(
             'hstt = hstt.main:main',
         ],
     },
-    python_requires='>=3.6',
+    python_requires='>=3.7',
     install_requires=requirements,
     data_files=[('', ['LICENSE'])],
     classifiers=[
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
         'License :: OSI Approved :: MIT License',
     ],
 )

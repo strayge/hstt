@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 import curses
-import platform
+import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import partial, wraps
@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from aiohttp import ClientSession, ClientTimeout, TraceConfig
 
-if platform.system() == 'Windows':
+if sys.platform == 'win32':
     # https://bugs.python.org/issue39232
     # https://github.com/aio-libs/aiohttp/issues/4324
     def silence_event_loop_closed(func):
