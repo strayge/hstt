@@ -1,5 +1,9 @@
 ## hstt - HTTP stress testing tool
 
+[![PyPI version shields.io](https://img.shields.io/pypi/v/hstt.svg)](https://pypi.org/project/hstt/)
+[![PyPI pyversions](https://img.shields.io/pypi/pyversions/hstt.svg)](https://pypi.org/project/hstt/)
+[![PyPI download month](https://img.shields.io/pypi/dm/hstt.svg)](https://pypi.org/project/hstt/)
+
 ![screenshot](https://user-images.githubusercontent.com/2664578/130337933-40b131e0-2f27-4f77-a389-c3ecc0668b00.gif)
 
 ### Params
