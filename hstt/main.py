@@ -151,6 +151,7 @@ def main() -> None:
             now = time()
             if now - start_time > args.d:
                 # total duration exceeded
+                end_screen()
                 stats(args, all_results, now - start_time)
                 print(f'\nDuration exceeded ({args.d} seconds).')
                 exit()
@@ -163,17 +164,18 @@ def main() -> None:
                     continue
                 else:
                     # no workers, assuming tasks completed
+                    end_screen()
                     stats(args, all_results, now - start_time)
                     exit()
             result: Result = results.get()
             all_results.append(result)
     except KeyboardInterrupt:
+        end_screen()
         stats(args, all_results, time() - start_time)
         exit(1)
     except Exception:
-        raise
-    finally:
         end_screen()
+        raise
 
 
 class CustomArgsFormatter(argparse.HelpFormatter):
