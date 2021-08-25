@@ -4,8 +4,7 @@
 [![PyPI pyversions](https://img.shields.io/pypi/pyversions/hstt.svg)](https://pypi.org/project/hstt/)
 [![PyPI download month](https://img.shields.io/pypi/dm/hstt.svg)](https://pypi.org/project/hstt/)
 
-![screenshot](https://user-images.githubusercontent.com/2664578/130337933-40b131e0-2f27-4f77-a389-c3ecc0668b00.gif)
-
+![screenshot](https://user-images.githubusercontent.com/2664578/130731152-87656f6e-b691-4a32-9ed1-5e6cebdc4671.gif)
 ### Params
 
 ```
