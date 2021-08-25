@@ -14,6 +14,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from aiohttp import ClientSession, ClientTimeout, TraceConfig
 
+VERSION = '0.0.4'
+
 
 @dataclass
 class Result:
@@ -200,6 +202,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--insecure', action='store_true', help='Skip TLS verification')
     parser.add_argument('--chrome', action='store_true', help='Use Chrome User-Agent header')
     parser.add_argument('--no-reuse', action='store_true', help='New connection for each request')
+    parser.add_argument('--version', action='version', version=f'hstt {VERSION}', help='Show version number')
     parser.add_argument('url', help='target URL')
     args = parser.parse_args()
     if not (args.url.startswith('http:') or args.url.startswith('https:')):

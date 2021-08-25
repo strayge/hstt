@@ -1,5 +1,7 @@
 from setuptools import find_packages, setup
 
+from hstt.main import VERSION
+
 with open('README.md') as f:
     readme = f.read()
 
@@ -8,7 +10,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='hstt',
-    version='0.0.4',
+    version=VERSION,
     description='HTTP stress testing tool',
     long_description=readme,
     author='strayge',
