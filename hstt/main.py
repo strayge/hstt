@@ -153,7 +153,7 @@ def main() -> None:
             now = time()
             if now - start_time > args.d:
                 # total duration exceeded
-                end_screen()
+                end_screen(args)
                 stats(args, all_results, now - start_time)
                 print(f'\nDuration exceeded ({args.d} seconds).')
                 exit()
@@ -166,17 +166,17 @@ def main() -> None:
                     continue
                 else:
                     # no workers, assuming tasks completed
-                    end_screen()
+                    end_screen(args)
                     stats(args, all_results, now - start_time)
                     exit()
             result: Result = results.get()
             all_results.append(result)
     except KeyboardInterrupt:
-        end_screen()
+        end_screen(args)
         stats(args, all_results, time() - start_time)
         exit(1)
     except Exception:
-        end_screen()
+        end_screen(args)
         raise
 
 
@@ -202,6 +202,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--insecure', action='store_true', help='Skip TLS verification')
     parser.add_argument('--chrome', action='store_true', help='Use Chrome User-Agent header')
     parser.add_argument('--no-reuse', action='store_true', help='New connection for each request')
+    parser.add_argument('--no-tui', action='store_true', help='Not show curses UI')
     parser.add_argument('--version', action='version', version=f'hstt {VERSION}', help='Show version number')
     parser.add_argument('url', help='target URL')
     args = parser.parse_args()
@@ -303,8 +304,10 @@ def stats(args: argparse.Namespace, results: List[Result], total_time: float) ->
 
 # TUI (curses)
 
-def init_screen() -> Any:
+def init_screen(args: argparse.Namespace) -> Any:
     """Initialize curses."""
+    if args.no_tui:
+        return
     screen = curses.initscr()
     curses.noecho()
     curses.cbreak()
@@ -312,8 +315,10 @@ def init_screen() -> Any:
     return screen
 
 
-def end_screen() -> None:
+def end_screen(args: argparse.Namespace) -> None:
     """Deinitialize curses."""
+    if args.no_tui:
+        return
     curses.nocbreak()
     curses.echo()
     curses.endwin()
@@ -414,6 +419,8 @@ class SubArea:
 
 def update_screen(screen, args: argparse.Namespace, results: List[Result]) -> None:
     """Redraw curses UI."""
+    if args.no_tui:
+        return
     detect_window_resize(screen)
     screen.erase()
 

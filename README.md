@@ -10,7 +10,7 @@
 
 ```
 usage: hstt [-h] [-n <num>] [-c <num>] [-d <sec>] [-t <sec>] [-H [<header> ...]] [-b <body>]
-            [-m <method>] [--debug] [--insecure] [--chrome] [--no-reuse] [--version]
+            [-m <method>] [--debug] [--insecure] [--chrome] [--no-reuse] [--no-tui] [--version]
             url
 
 HTTP stress testing tool (hstt)
@@ -31,6 +31,7 @@ optional arguments:
   --insecure         Skip TLS verification
   --chrome           Use Chrome User-Agent header
   --no-reuse         New connection for each request
+  --no-tui           Not show curses UI
   --version          Show version number
 ```
 
