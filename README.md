@@ -9,8 +9,9 @@
 ### Params
 
 ```
-usage: hstt [-h] [-n <num>] [-c <num>] [-d <sec>] [-t <sec>] [-H [<header> ...]] [-b <body>]
-            [-m <method>] [--debug] [--insecure] [--chrome] [--no-reuse] [--no-tui] [--version]
+usage: hstt [-h] [-n <num>] [-c <num>] [--rps <num>] [-d <sec>] [-t <sec>]
+            [-H [<header> [<header> ...]]] [-b <body>] [-m <method>] [--debug]
+            [--insecure] [--chrome] [--no-reuse] [--no-tui] [--version]
             url
 
 HTTP stress testing tool (hstt)
@@ -22,6 +23,7 @@ optional arguments:
   -h, --help         show this help message and exit
   -n <num>           Total number of requests to perform (default: 10)
   -c <num>           Number of concurrent requests (default: 1)
+  --rps <num>        Target request per second (still limited by -c)
   -d <sec>           Total duration limit (default: 30)
   -t <sec>           The timeout for each request (default: 30)
   -H [<header> ...]  A request header to be sent

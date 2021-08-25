@@ -28,6 +28,11 @@ class Result:
     ttfb_time: Optional[float] = None
 
 
+# global changing options for threads
+request_delay: float = 0
+enabled_threads: int = 0
+
+
 def worker_start(*args: Any) -> None:
     """Worker entry point."""
     try:
@@ -39,7 +44,9 @@ def worker_start(*args: Any) -> None:
         print(repr(e))
 
 
-async def worker_loop(args: argparse.Namespace, tasks: Queue, results: Queue, start_event: Event) -> None:
+async def worker_loop(
+    args: argparse.Namespace, tasks: Queue, results: Queue, start_event: Event, worker_number: int,
+) -> None:
     """Make actual requests in loop."""
     try:
         # trace for tracking time different times inside requests
@@ -66,6 +73,13 @@ async def worker_loop(args: argparse.Namespace, tasks: Queue, results: Queue, st
                 trace_configs=[trace],
             )
         while True:
+            # throttle requests
+            if worker_number >= enabled_threads:
+                sleep(1)
+                continue
+            if request_delay:
+                sleep(request_delay)
+
             if args.no_reuse:
                 # new session for each request
                 session = ClientSession(
@@ -131,10 +145,10 @@ def main() -> None:
     workers = [
         Thread(
             target=worker_start,
-            args=(args, tasks, results, start_event),
+            args=(args, tasks, results, start_event, i),
             daemon=True,
         )
-        for _ in range(args.c)
+        for i in range(args.c)
     ]
 
     for _ in range(args.n):
@@ -143,11 +157,18 @@ def main() -> None:
     for worker in workers:
         worker.start()
 
-    screen = init_screen()
+    # grow from 1 worker for --rps mode
+    global enabled_threads
+    enabled_threads = args.c if not args.rps else 1
+
+    screen = init_screen(args)
 
     # tell worked to start requests
     start_event.set()
     start_time = time()
+    last_adjust_time = start_time
+    last_adjust_time_reqs = 0
+    last_adjust_up = True
     try:
         while True:
             now = time()
@@ -157,11 +178,16 @@ def main() -> None:
                 stats(args, all_results, now - start_time)
                 print(f'\nDuration exceeded ({args.d} seconds).')
                 exit()
+            if now - last_adjust_time >= 1:
+                # adjust thread settings for target rps
+                last_adjust_time = now
+                last_adjust_up = adjust_threads_speed(args, last_adjust_up, last_adjust_time_reqs)
+                last_adjust_time_reqs = 0
             if results.empty():
                 # no new results
                 if any([worker.is_alive() for worker in workers]):
                     # workers still alive, so wait for new results
-                    update_screen(screen, args, all_results)
+                    update_screen(screen, args, all_results, now - start_time, last_adjust_time_reqs)
                     sleep(0.5)
                     continue
                 else:
@@ -170,6 +196,7 @@ def main() -> None:
                     stats(args, all_results, now - start_time)
                     exit()
             result: Result = results.get()
+            last_adjust_time_reqs += 1
             all_results.append(result)
     except KeyboardInterrupt:
         end_screen(args)
@@ -178,6 +205,38 @@ def main() -> None:
     except Exception:
         end_screen(args)
         raise
+
+
+def adjust_threads_speed(args: argparse.Namespace, last_adjust_up: bool, last_adjust_time_reqs: int) -> bool:
+    if not args.rps:
+        return False
+    global enabled_threads, request_delay
+    if args.debug:
+        print(f'{last_adjust_time_reqs} rps, {enabled_threads} threads, {request_delay} delay')
+    thread_speed = last_adjust_time_reqs / enabled_threads
+    if last_adjust_time_reqs > args.rps:
+        if not last_adjust_up:  # speed not stable, so skip 1 sec slow down
+            # need rps down
+            if enabled_threads == 1:
+                request_delay += 0.01
+            else:
+                if abs(last_adjust_time_reqs - args.rps) >= thread_speed:
+                    enabled_threads -= 1
+                else:
+                    request_delay += 0.01
+        return False
+    else:
+        if last_adjust_up:  # speed not stable, so skip 1 sec speed up
+            # need rps up
+            if request_delay:
+                request_delay = max(0.0, request_delay - 0.01)
+            else:
+                if abs(last_adjust_time_reqs - args.rps) >= thread_speed * 5:
+                    # mostly for fast start
+                    enabled_threads = min(args.c, enabled_threads + 5)
+                elif abs(last_adjust_time_reqs - args.rps) >= thread_speed:
+                    enabled_threads = min(args.c, enabled_threads + 1)
+        return True
 
 
 class CustomArgsFormatter(argparse.HelpFormatter):
@@ -193,6 +252,7 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='HTTP stress testing tool (hstt)', formatter_class=CustomArgsFormatter)
     parser.add_argument('-n', type=int, metavar='<num>', default=10, help='Total number of requests to perform')
     parser.add_argument('-c', type=int, metavar='<num>', default=1, help='Number of concurrent requests')
+    parser.add_argument('--rps', type=int, metavar='<num>', help='Target request per second (still limited by -c)')
     parser.add_argument('-d', type=float, metavar='<sec>', default=30, help='Total duration limit')
     parser.add_argument('-t', type=float, metavar='<sec>', default=30, help='The timeout for each request')
     parser.add_argument('-H', metavar='<header>', nargs='*', help='A request header to be sent')
@@ -417,7 +477,9 @@ class SubArea:
             print(repr(e), y_start, x_start, length)
 
 
-def update_screen(screen, args: argparse.Namespace, results: List[Result]) -> None:
+def update_screen(
+    screen, args: argparse.Namespace, results: List[Result], total_time: float, rps: float,
+) -> None:
     """Redraw curses UI."""
     if args.no_tui:
         return
@@ -434,10 +496,12 @@ def update_screen(screen, args: argparse.Namespace, results: List[Result]) -> No
     area_progress = SubArea(screen, max_y - 3, 1, 2, max_x - 2)
     area_progress.set_border(top=True)
     completed_percent = len(results) / args.n
-    area_progress.draw_text(0, 0, f'{len(results):>6} / {args.n:>6}')
-    area_progress.draw_text(0, area_progress.width - 4, f'{len(results) * 100 / args.n:.0f}%')
+    area_progress.draw_text(
+        0, 0, f'{total_time:>4.0f} sec {enabled_threads:>3} thr {rps:>3.0f} rps {len(results):>6} / {args.n:>6}',
+    )
+    area_progress.draw_text(0, area_progress.width - 5, f'{len(results) * 100 / args.n:>3.0f}%')
     if completed_percent:
-        area_progress.draw_hline(0, 17, int(completed_percent * (area_progress.width - 22)) or 1)
+        area_progress.draw_hline(0, 41, int(completed_percent * (area_progress.width - 47)) or 1)
     area_progress.draw_border()
 
     # timings
