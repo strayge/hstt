@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from aiohttp import ClientSession, ClientTimeout, TraceConfig
 
-VERSION = '0.0.4'
+VERSION = '0.0.5'
 
 
 @dataclass
