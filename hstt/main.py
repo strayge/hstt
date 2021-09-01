@@ -91,7 +91,7 @@ async def worker_loop(
                 # do not reuse cookies with common session
                 session.cookie_jar.clear()
             try:
-                tasks.get(block=True, timeout=1)
+                url = tasks.get(block=True, timeout=1)
             except Empty:
                 # no more tasks, stop worker
                 await session.close()
@@ -105,7 +105,7 @@ async def worker_loop(
                     headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36'  # noqa: E501
                 response = await session.request(
                     method=args.m,
-                    url=args.url,
+                    url=url,
                     data=args.b,
                     headers=headers,
                     allow_redirects=False,
@@ -151,8 +151,11 @@ def main() -> None:
         for i in range(args.c)
     ]
 
-    for _ in range(args.n):
-        tasks.put(args.url, block=True)
+    for i in range(args.n):
+        url = args.url
+        if args.counter:
+            url = url.replace('{i}', str(i))
+        tasks.put(url, block=True)
 
     for worker in workers:
         worker.start()
@@ -258,6 +261,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('-H', metavar='<header>', nargs='*', help='A request header to be sent')
     parser.add_argument('-b', metavar='<body>', help='A request body to be sent')
     parser.add_argument('-m', metavar='<method>', default='GET', help='An HTTP request method for each request')
+    parser.add_argument('--counter', action='store_true', help='Replace "{i}" in url to current request number')
     parser.add_argument('--debug', action='store_true', help='Run in debug mode')
     parser.add_argument('--insecure', action='store_true', help='Skip TLS verification')
     parser.add_argument('--chrome', action='store_true', help='Use Chrome User-Agent header')

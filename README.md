@@ -29,6 +29,7 @@ optional arguments:
   -H [<header> ...]  A request header to be sent
   -b <body>          A request body to be sent
   -m <method>        An HTTP request method for each request (default: GET)
+  --counter          Replace "{i}" in url to current request number
   --debug            Run in debug mode
   --insecure         Skip TLS verification
   --chrome           Use Chrome User-Agent header
