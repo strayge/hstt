@@ -1,2 +1,3 @@
 aiohttp
+aiohttp_socks
 windows-curses; sys_platform == 'win32'

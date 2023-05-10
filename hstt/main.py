@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from aiohttp import ClientSession, ClientTimeout, TraceConfig
+from aiohttp_socks import ProxyConnector
 
 VERSION = '0.0.5'
 
@@ -65,9 +66,16 @@ async def worker_loop(
         if not start_event.wait(timeout=10):
             return
 
+        def get_connector() -> Optional[ProxyConnector]:
+            """Should be new on each session (as can be closed)."""
+            if args.proxy:
+                return ProxyConnector.from_url(args.proxy)
+            return None
+
         if not args.no_reuse:
             # common session for all requests
             session = ClientSession(
+                connector=get_connector(),
                 timeout=ClientTimeout(total=args.t),
                 skip_auto_headers=('User-Agent',),
                 trace_configs=[trace],
@@ -83,6 +91,7 @@ async def worker_loop(
             if args.no_reuse:
                 # new session for each request
                 session = ClientSession(
+                    connector=get_connector(),
                     timeout=ClientTimeout(total=args.t),
                     skip_auto_headers=('User-Agent',),
                     trace_configs=[trace],
@@ -267,6 +276,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--chrome', action='store_true', help='Use Chrome User-Agent header')
     parser.add_argument('--no-reuse', action='store_true', help='New connection for each request')
     parser.add_argument('--no-tui', action='store_true', help='Not show curses UI')
+    parser.add_argument('--proxy', type=str, metavar='<proxy>', help='Proxy server (with schema)')
     parser.add_argument('--version', action='version', version=f'hstt {VERSION}', help='Show version number')
     parser.add_argument('url', help='target URL')
     args = parser.parse_args()
